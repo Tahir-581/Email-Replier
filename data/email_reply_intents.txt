@@ -1,0 +1,599 @@
+EMAIL REPLY PIPELINE — INTENT REFERENCE
+=========================================
+Source: src/llm/prompts/intent_classifier.py, policy_engine.py, reply_constraints.py
+Company: Acme Corp (example company used in the prompts)
+
+Overview
+--------
+The reply pipeline uses a multi-intent classifier. A single candidate email can match
+more than one intent. Detected intents drive:
+
+  1. Policy engine  — what the reply should say and avoid
+  2. Reply constraints — whether to include job forms, LinkedIn, or company intro
+  3. Email writer     — final reply text generation
+
+Intents are matched conservatively: only when the email clearly expresses that scenario.
+
+
+INTENT LIST (1–28)
+==================
+
+--------------------------------------------------------------------------------
+INTENT 1 — Candidate is not interested
+--------------------------------------------------------------------------------
+What it means:
+  The candidate is declining, withdrawing, or explicitly saying they do not want
+  to proceed with the company or role.
+
+Typical usage scenario:
+  - "I can't pursue with your company."
+  - "I'm not interested in this opportunity."
+  - "I've decided to withdraw my application."
+
+Reply behavior:
+  - Acknowledge warmly without saying "I respect your decision."
+  - Use phrasing like "Thank you for letting us know."
+  - If the role is still relevant, briefly note the opportunity remains open and
+    share the appropriate application form or job description.
+  - LinkedIn touchpoint is allowed: invite them to connect for future touchpoints
+    with the recruiter LinkedIn URL.
+
+Constraint notes:
+  - Decline-style intent; LinkedIn touchpoint permitted.
+  - Do not treat relocation, callback, follow-up, or complaint emails as "not
+    interested" unless they actually decline.
+
+--------------------------------------------------------------------------------
+INTENT 2 — Candidate is interested, asks for JD or relevant opening
+--------------------------------------------------------------------------------
+What it means:
+  The candidate wants to apply, asks about open positions, or requests a job
+  description / next step for a supported role.
+
+Typical usage scenario:
+  - "Are there any AI/ML openings?"
+  - "I'm a fresh graduate looking for entry-level roles — what should I do next?"
+  - "Please share the job description."
+
+Reply behavior:
+  - Share only the relevant next step or application form for the role they asked
+    about (AI/ML, Senior AI/ML, Full Stack, or AI Internship as applicable).
+  - Keep the reply direct; avoid unrelated company background.
+
+Constraint notes:
+  - Form selection depends on role keywords in the email (AI/ML vs Frontend/Full Stack).
+
+--------------------------------------------------------------------------------
+INTENT 3 — Candidate wants remote or hybrid
+--------------------------------------------------------------------------------
+What it means:
+  The candidate asks whether remote work, work-from-home, or hybrid arrangements
+  are available.
+
+Typical usage scenario:
+  - "Is remote work possible?"
+  - "Can I work hybrid from Lahore?"
+  - "I'm not at the company office — any WFH option?"
+
+Reply behavior:
+  - State clearly that remote/hybrid is not available for these roles.
+  - Explain that systems are locally hosted and sensitive.
+  - Mention company-managed accommodation for outstation employees only if
+    relocation is the underlying blocker.
+
+Constraint notes:
+  - Not a decline; do not classify as Intent 1.
+
+--------------------------------------------------------------------------------
+INTENT 4 — Candidate cannot relocate now, but may later
+--------------------------------------------------------------------------------
+What it means:
+  The candidate is interested but cannot move to the company office immediately; they may
+  be open to relocating in the future.
+
+Typical usage scenario:
+  - "I can't relocate right now but maybe in a few months."
+  - "I'm finishing my degree and will be available to move later."
+
+Reply behavior:
+  - Address timing directly; timelines can be aligned during the hiring process.
+  - Do not offer temporary remote work as a workaround.
+
+--------------------------------------------------------------------------------
+INTENT 5 — Student, final year, not ready for full-time now
+--------------------------------------------------------------------------------
+What it means:
+  A student (often final-year) is not available for full-time employment yet but
+  may still be engaging about future opportunities or internships.
+
+Typical usage scenario:
+  - "I'm in my final year and can't join full-time until graduation."
+  - "I'm still studying — can I apply after my exams?"
+
+Reply behavior:
+  - Address timing and availability directly.
+  - If they also ask about internship (Intent 13), prioritize internship guidance
+    over pushing full-time roles.
+
+--------------------------------------------------------------------------------
+INTENT 6 — Candidate already applied
+--------------------------------------------------------------------------------
+What it means:
+  The candidate states they have already submitted an application or completed
+  an application step.
+
+Typical usage scenario:
+  - "I already applied through the Google Form."
+  - "I submitted my CV last week."
+
+Reply behavior:
+  - Acknowledge the application.
+  - Explain review process and possible next steps without overpromising outcomes
+    (e.g., do not invent selection status).
+
+--------------------------------------------------------------------------------
+INTENT 7 — Candidate objects to salary / package
+--------------------------------------------------------------------------------
+What it means:
+  The candidate is pushing back on compensation — saying the salary is too low,
+  the package doesn't meet expectations, or they object to what was offered.
+
+Typical usage scenario:
+  - "The salary is too low for me."
+  - "I can't accept this package."
+
+Reply behavior:
+  - Acknowledge concern about the package.
+  - Explain compensation is discussed after evaluation/final stage and can be
+    reconsidered based on experience, skills, and fit.
+  - LinkedIn touchpoint allowed for future engagement.
+
+Constraint notes:
+  - Different from Intent 17: Intent 7 is objection; Intent 17 is an informational
+    question about salary/stipend policy. Both can match in one email.
+
+--------------------------------------------------------------------------------
+INTENT 8 — Candidate asks about Frontend / Full Stack / MERN / .NET role
+--------------------------------------------------------------------------------
+What it means:
+  The candidate inquires about frontend, full stack, MERN, .NET, or similar
+  non-AI engineering roles, or shares portfolio fit for those stacks.
+
+Typical usage scenario:
+  - "I'm a frontend developer — any openings?"
+  - "Do you have MERN or .NET positions?"
+  - "I'm a React developer looking for a role."
+
+Reply behavior:
+  - Answer with the Full Stack Developer role only (on-site at the company office).
+  - Do not include AI/ML application forms unless clearly relevant to the thread.
+
+Constraint notes:
+  - Typically shares only the Full Stack Developer form.
+
+--------------------------------------------------------------------------------
+INTENT 9 — Candidate refers someone
+--------------------------------------------------------------------------------
+What it means:
+  The candidate is referring another person for a job — sharing a friend's or
+  colleague's details for recruitment.
+
+Typical usage scenario:
+  - "My friend is also looking — here's their CV."
+  - "I'd like to refer a candidate for your AI team."
+
+Reply behavior:
+  - Direct the referred person to apply through the relevant form, or ask the
+    referrer to share CV/contact details as appropriate.
+  - Share only forms relevant to the referred role.
+
+--------------------------------------------------------------------------------
+INTENT 10 — Candidate asks if they can share with their network
+--------------------------------------------------------------------------------
+What it means:
+  The candidate wants permission or guidance to share job openings with friends,
+  classmates, or their professional network.
+
+Typical usage scenario:
+  - "Can I share this opening with my university group?"
+  - "Is it okay if I forward this to other developers?"
+
+Reply behavior:
+  - Encourage sharing.
+  - Include only the relevant application form(s) for the role being shared.
+  - LinkedIn touchpoint allowed.
+
+--------------------------------------------------------------------------------
+INTENT 11 — Candidate asks about company details / legitimacy / culture
+--------------------------------------------------------------------------------
+What it means:
+  Questions about what the company does, whether it is legitimate, work culture,
+  or general company information (not salary, remote, or role-specific forms).
+
+Typical usage scenario:
+  - "What does Acme Corp do?"
+  - "Is this a legitimate company?"
+  - "What's the work culture like?"
+
+Reply behavior:
+  - Answer only the specific company detail asked, concisely.
+  - Company intro is allowed for this intent.
+  - Do not add job forms unless the candidate also asks about openings.
+
+Constraint notes:
+  - Do not match for salary-only, remote-only, or stipend-only inquiries.
+
+--------------------------------------------------------------------------------
+INTENT 12 — Candidate asks about interview process
+--------------------------------------------------------------------------------
+What it means:
+  The candidate wants to know how hiring works — stages, format, or what to
+  expect in interviews.
+
+Typical usage scenario:
+  - "What is your interview process?"
+  - "How many rounds are there?"
+  - "Is there a technical interview?"
+
+Reply behavior:
+  - Explain the three stages: HR/screening call, Zoom technical interview, final
+    on-site interview at the company office.
+  - Keep the explanation concise.
+
+--------------------------------------------------------------------------------
+INTENT 13 — Candidate asks about internship
+--------------------------------------------------------------------------------
+What it means:
+  Interest in an internship program, internship availability, or internship-related
+  next steps (excluding completion certificate requests — see Intent 23).
+
+Typical usage scenario:
+  - "Do you offer AI/ML internships?"
+  - "I'm looking for an internship opportunity."
+  - "How do I apply for internship?"
+
+Reply behavior:
+  - Mention internship option and on-site requirement.
+  - Answer stipend questions if also asked (may co-occur with Intent 17).
+  - Share the AI Internship form when appropriate.
+
+Constraint notes:
+  - Typically shares only the AI Internship form.
+
+--------------------------------------------------------------------------------
+INTENT 14 — Candidate wants part-time / consultancy / freelance / visiting role
+--------------------------------------------------------------------------------
+What it means:
+  The candidate asks for non-full-time arrangements: part-time, consultancy,
+  project-based, freelance, or visiting faculty/role.
+
+Typical usage scenario:
+  - "Do you have part-time positions?"
+  - "I'm available for consultancy work."
+  - "Any freelance opportunities?"
+
+Reply behavior:
+  - State clearly that part-time, consultancy, freelance, and visiting roles are
+    not available.
+  - Only full-time on-site roles are offered.
+
+--------------------------------------------------------------------------------
+INTENT 15 — Candidate asks about office growth / departments / team size / CEO
+--------------------------------------------------------------------------------
+What it means:
+  Factual questions about organizational structure: team size, departments, growth,
+  number of employees, or CEO/leadership.
+
+Typical usage scenario:
+  - "How big is the AI team?"
+  - "What departments do you have?"
+  - "Who is the CEO?"
+
+Reply behavior:
+  - Answer only the specific fact requested.
+  - For departments: describe the functional areas from the company profile
+    (e.g. AI/Engineering, Finance, Operations).
+  - Do not add company taglines or job forms unless openings are also requested.
+
+Constraint notes:
+  - Company intro allowed (with Intent 11).
+
+--------------------------------------------------------------------------------
+INTENT 16 — Candidate complains about management / poor experience
+--------------------------------------------------------------------------------
+What it means:
+  The candidate reports a bad experience: poor communication, management issues,
+  delays, confusion, or frustration with how they were treated.
+
+Typical usage scenario:
+  - "Your management is very bad — that's why I can't pursue."
+  - "Nobody responded to my emails."
+  - "The process was very unprofessional."
+
+Reply behavior:
+  - Stay calm; acknowledge concern and apologize for the experience.
+  - Ask what happened; mention the team may have been extremely busy.
+  - Do not sound defensive.
+  - If they are disengaging, gently note the opportunity remains open and share
+    the relevant role link; include LinkedIn touchpoint.
+  - This is NOT Intent 1 unless they explicitly decline.
+
+Constraint notes:
+  - LinkedIn touchpoint allowed.
+  - Form sharing depends on role context and co-occurring intents (e.g., follow-up).
+
+--------------------------------------------------------------------------------
+INTENT 17 — Candidate asks direct salary / stipend policy question
+--------------------------------------------------------------------------------
+What it means:
+  An informational question about salary ranges, monthly pay, or internship
+  stipend policy — not necessarily an objection (see Intent 7).
+
+Typical usage scenario:
+  - "What is the monthly salary for AI/ML Engineer?"
+  - "What is the per-month stipend for AI/ML internship?"
+  - "What salary range do you offer?"
+
+Reply behavior:
+  - Answer salary/stipend policy directly.
+  - Internship stipend is discussed after evaluation.
+  - Note exact compensation is confirmed after final evaluation.
+  - No company intro unless also triggered by Intent 11/15.
+
+Constraint notes:
+  - Can co-occur with Intent 13 for internship stipend questions.
+
+--------------------------------------------------------------------------------
+INTENT 18 — Candidate is ready to relocate or asks about accommodation / relocation process
+--------------------------------------------------------------------------------
+What it means:
+  Willingness to relocate, questions about hostel/accommodation, or (for current
+  employees) workplace transfer / relocation support requests.
+
+Typical usage scenario:
+  - "I'm ready to relocate to the company office — do you provide accommodation?"
+  - "What is the relocation process for outstation candidates?"
+  - "Can I transfer to the company office?" (employee transfer case)
+
+Reply behavior:
+  - For candidates: confirm company-managed accommodation for outstation employees;
+    detailed info provided during onboarding; do not suggest third-party hostels.
+  - For employee transfer requests: acknowledge, note for HR/management review,
+    ask for supporting documentation if needed.
+  - Not a decline.
+
+--------------------------------------------------------------------------------
+INTENT 19 — Candidate follows up on application / interview / no response / status
+--------------------------------------------------------------------------------
+What it means:
+  Follow-up on application status, interview outcome, lack of response, or timeline
+  updates.
+
+Typical usage scenario:
+  - "I haven't heard back after my interview."
+  - "What's the status of my application?"
+  - "It's been two weeks with no update."
+
+Reply behavior:
+  - Acknowledge delay or frustration.
+  - Say the team will review and update.
+  - Do not use "immediate joining" language as a substitute for a real update.
+
+Constraint notes:
+  - Job forms generally not included (NO_FORM_INTENTS group).
+
+--------------------------------------------------------------------------------
+INTENT 20 — Candidate asks for clarification or reports incorrect information
+--------------------------------------------------------------------------------
+What it means:
+  Confusion about something said earlier, conflicting details, or reporting that
+  information provided was wrong.
+
+Typical usage scenario:
+  - "You said on-site but the JD mentioned remote — which is correct?"
+  - "The form link seems wrong."
+  - "I think there was incorrect information in your last email."
+
+Reply behavior:
+  - Apologize for confusion.
+  - Ask them to point out the exact detail if needed.
+  - Say you will verify and provide correct information.
+  - No job forms unless explicitly requested.
+
+Constraint notes:
+  - No forms by default.
+
+--------------------------------------------------------------------------------
+INTENT 21 — Candidate requests a callback
+--------------------------------------------------------------------------------
+What it means:
+  The candidate asks for a phone call or callback rather than continuing by email.
+
+Typical usage scenario:
+  - "Please call me to discuss."
+  - "Can someone from HR call me?"
+  - "My number is … please callback."
+
+Reply behavior:
+  - Ask them to briefly share the matter by email first so it can be routed properly.
+
+Constraint notes:
+  - No job forms in reply.
+
+--------------------------------------------------------------------------------
+INTENT 22 — Candidate forwards an email chain for review
+--------------------------------------------------------------------------------
+What it means:
+  The candidate forwards a previous email thread for the recruiter to review,
+  often for context or escalation.
+
+Typical usage scenario:
+  - Forwards an old thread with "Please see below."
+  - "FYI — here's the full conversation for your review."
+
+Reply behavior:
+  - Acknowledge receipt.
+  - Say it will be reviewed.
+  - Only state no further action is needed if that is clear from the thread.
+
+Constraint notes:
+  - No forms by default.
+
+--------------------------------------------------------------------------------
+INTENT 23 — Candidate requests internship / completion certificate
+--------------------------------------------------------------------------------
+What it means:
+  Request for an internship completion certificate, verification letter, or similar
+  documentation after completing an internship.
+
+Typical usage scenario:
+  - "Please issue my internship completion certificate."
+  - "I need verification of my internship tenure for my university."
+
+Reply behavior:
+  - Ask for tenure dates, department, supervisor/manager if needed.
+  - Say the team will verify and coordinate issuance.
+  - Do not confirm certificate is ready unless explicitly in thread history.
+
+Constraint notes:
+  - No job forms in reply.
+
+--------------------------------------------------------------------------------
+INTENT 24 — Candidate asks about unsupported role such as HR, Content Writer, Graphic Designer
+--------------------------------------------------------------------------------
+What it means:
+  Inquiry about roles the company does not actively recruit for via standard forms
+  (HR Manager, Content Writer, Graphic Designer, etc.).
+
+Typical usage scenario:
+  - "Any HR Manager openings?"
+  - "I'm a graphic designer — do you have design roles?"
+  - "Looking for a content writer position."
+
+Reply behavior:
+  - Do not send AI/ML or Full Stack forms.
+  - Explain current forms are limited to supported roles.
+  - Ask them to share CV/portfolio or wait for a relevant opening.
+
+Constraint notes:
+  - No matching supported application form.
+
+--------------------------------------------------------------------------------
+INTENT 25 — Candidate requests interview reschedule
+--------------------------------------------------------------------------------
+What it means:
+  The candidate needs to move or postpone a scheduled interview.
+
+Typical usage scenario:
+  - "Can we reschedule my interview to next week?"
+  - "I'm unavailable on the scheduled date — alternative slots?"
+
+Reply behavior:
+  - Ask for 2–3 available slots, or say HR will coordinate a new slot.
+  - No job forms.
+
+Constraint notes:
+  - No forms by default.
+
+--------------------------------------------------------------------------------
+INTENT 26 — Candidate reports website / form issue
+--------------------------------------------------------------------------------
+What it means:
+  Problems applying via the website or Google Form: broken link, error message,
+  or request for an alternate submission method.
+
+Typical usage scenario:
+  - "The application form is not working."
+  - "I get an error when submitting."
+  - "Can I send my CV by email instead?"
+
+Reply behavior:
+  - Apologize for the inconvenience.
+  - Ask for screenshot/error details if needed.
+  - Provide only the correct alternative relevant form for their role.
+
+Constraint notes:
+  - Shares the appropriate form as workaround after apology.
+
+--------------------------------------------------------------------------------
+INTENT 27 — Candidate asks for feedback after rejection
+--------------------------------------------------------------------------------
+What it means:
+  After being rejected, the candidate requests detailed feedback on why they were
+  not selected or how to improve.
+
+Typical usage scenario:
+  - "Can you share feedback on why I wasn't selected?"
+  - "What should I improve for next time?"
+
+Reply behavior:
+  - Acknowledge the request.
+  - Explain detailed individual feedback may not always be available.
+  - Keep guidance concise and professional.
+
+Constraint notes:
+  - No job forms by default.
+
+--------------------------------------------------------------------------------
+INTENT 28 — Candidate shares portfolio / CV for non-AI role review
+--------------------------------------------------------------------------------
+What it means:
+  Submission of portfolio or CV for review for a non-AI role (e.g., design,
+  writing, or general review without a supported opening).
+
+Typical usage scenario:
+  - "Please review my portfolio for a design role."
+  - "Attached is my CV for your consideration." (unsupported role context)
+
+Reply behavior:
+  - Acknowledge receipt; say the team will review.
+  - Do not include AI/ML application forms.
+
+Constraint notes:
+  - No forms; review acknowledgment only.
+
+
+PROFILE TYPES (used alongside intents)
+======================================
+The classifier also assigns exactly one profile type. This influences form selection
+and reply tone but is not an "intent" bucket:
+
+  ai_ml_fit          — Candidate fits AI/ML Engineer track
+  senior_ai_ml_fit   — Candidate fits Senior AI/ML Engineer track
+  full_stack_fit     — Candidate fits Full Stack Developer track
+  student            — Student / early-career profile
+  remote_only        — Primary blocker is remote work requirement
+  out_of_country     — Candidate is outside Pakistan / cannot work on-site easily
+  referrer           — Email is primarily a referral
+  unknown            — Insufficient signal for a specific profile
+
+
+CONSTRAINT GROUPS (quick reference)
+===================================
+Intents that typically suppress job forms:
+  19, 20, 21, 22, 23, 25, 27, 28
+
+Intents that allow company intro:
+  11, 15
+
+Intents that allow LinkedIn future-touchpoint closing:
+  1, 7, 10, 16
+
+Decline-style phrasing guardrails:
+  Intent 1 (and similar emotional cases) — avoid "I respect your decision"
+
+
+MULTI-INTENT BEHAVIOR
+=====================
+When multiple intents match one email, the policy engine merges instructions:
+
+  - Answer the candidate's primary question or blocker first.
+  - Omit forms or company intro if any matched intent forbids them.
+  - Include only the most relevant application form(s).
+  - Never invent application status, selection outcome, or certificate issuance.
+
+Example: Email says "salary is too low and I'm withdrawing" → Intents 1 + 7.
+Reply acknowledges decline and addresses compensation policy without forbidden phrases.
+
+Example: Email asks "internship stipend?" → Intents 13 + 17.
+Reply covers internship path and stipend policy with the AI Internship form if appropriate.
